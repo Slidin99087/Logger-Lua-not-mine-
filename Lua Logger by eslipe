@@ -1,0 +1,499 @@
+-- Light event-log by eslipe v.1.2 (19.05.2019)
+ 
+--[[ Updatelog:
+ 
+(19.05.2019)
+- Added background function
+- Added colour-picker for background
+- Added chroma mode for background
+- Improved UI (replaced all visual changes in one combo-box "Event-log design")
+- Fixed animation issue (now logs disappear correctly)
+- Fixed capitalization of the text (now every hitbox name is written in lowercase)
+- Fixed compatibility with other logs (logs wont double each other)
+ 
+ 
+(25.04.2019)
+- Customizable fonts
+- Customizable colour picker
+- Editable watermark in event-logs
+- Added chroma mode
+- Added new reasons of missed shots
+ 
+ 
+(23.03.2019)
+- Release
+ 
+]]
+ 
+ 
+-- interfaces
+local cvar = csgo.interface_handler:get_cvar( )
+local render = fatality.render
+local entity_list = csgo.interface_handler:get_entity_list( )
+local global_vars = csgo.interface_handler:get_global_vars( )
+ 
+-- config & menu access
+local menu = fatality.menu
+local config = fatality.config
+ 
+-- adding developer cvar to set it to 0 in future
+local developer = cvar:find_var("developer")
+ 
+-- setting cvar to 0
+developer:set_int(0)
+ 
+-- creating logs variable to place the logs there
+local logs = {}
+ 
+-- creating function to take logs from on shot function
+function add_light_log(text)
+    table.insert(logs, {text = text, expiration = 10, fadein = 0})
+end
+ 
+-- needed variables
+local lucida10px = render:create_font( "Lucida Console", 10, 0, true );
+local sPixel711px = render:create_font( "Smallest Pixel-7", 11, 400, true );
+local verdana12px = render:create_font( "Verdana", 12, 100, true );
+local verdanaBold12px = render:create_font( "Verdana Bold", 12, 800, true );
+ 
+-- screensize
+local screensize = render:screen_size();
+ 
+-- log design
+local log_design_item = config:add_item("le_log_design", 0)
+local log_design_combo = menu:add_combo("Event-log design", "visuals", "misc", "various", log_design_item)
+log_design_combo:add_item("Light", log_design_item)
+log_design_combo:add_item("Light + Watermark", log_design_item)
+log_design_combo:add_item("Filled", log_design_item)
+log_design_combo:add_item("Filled + Watermark", log_design_item)
+ 
+-- font switcher
+local font_item = config:add_item("le_font_item", 0)
+local font_combo = menu:add_combo("Event-log font", "visuals", "misc", "various", font_item)
+font_combo:add_item("Lucida Console", font_item)
+font_combo:add_item("Smallest Pixel-7", font_item)
+font_combo:add_item("Verdana", font_item)
+font_combo:add_item("Verdana Bold", font_item)
+ 
+-- chroma mode
+local addChromaMode_item = config:add_item( "le_addChromaMode_item", 0 )
+local addChromaMode_checkbox = menu:add_checkbox( "Chroma mode", "visuals", "misc", "various", addChromaMode_item )
+   
+-- colour picker for event-logs
+local watermark_colour_item = config:add_item("le_watermark_colour", 2)
+local watermark_colour_slider = menu:add_slider("Watermark colour", "visuals", "misc", "various", watermark_colour_item, 0 , 20, 1)
+ 
+-- colour picker for watermark
+local log_colour_item = config:add_item("le_log_colour", 0)
+local log_colour_slider = menu:add_slider("Event-logs colour", "visuals", "misc", "various", log_colour_item, 0 , 20, 1)
+ 
+-- colour picker for watermark
+local bg_colour_item = config:add_item("le_bg_colour", 15)
+local bg_colour_slider = menu:add_slider("Filled-background colour", "visuals", "misc", "various", bg_colour_item, 0 , 20, 1)
+ 
+ -- reason of resolver misses
+ local reasonOfMissesDueToResolver_item = config:add_item("le_reasonOfMisses", 0)
+ local reasonOfMissesDueToResolver_combo = menu:add_combo("[Resolver] Reason of misses", "visuals", "misc", "various", reasonOfMissesDueToResolver_item)
+ reasonOfMissesDueToResolver_combo:add_item("Due to resolver", reasonOfMissesDueToResolver_item)
+ reasonOfMissesDueToResolver_combo:add_item("Due to bad config", reasonOfMissesDueToResolver_item)
+ reasonOfMissesDueToResolver_combo:add_item("Config issue", reasonOfMissesDueToResolver_item)
+ reasonOfMissesDueToResolver_combo:add_item("Lua issue", reasonOfMissesDueToResolver_item)
+ reasonOfMissesDueToResolver_combo:add_item("Uid issue", reasonOfMissesDueToResolver_item)
+ reasonOfMissesDueToResolver_combo:add_item("Playstyle issue", reasonOfMissesDueToResolver_item)
+ 
+  -- reason of missess due to spread
+  local reasonOfMissesDueToSpread_item = config:add_item("le_reasonOfMissesDueToSpread_item", 0)
+  local reasonOfMissesDueToSpread_combo = menu:add_combo("[Spread] Reason of misses", "visuals", "misc", "various", reasonOfMissesDueToSpread_item)
+  reasonOfMissesDueToSpread_combo:add_item("Due to spread", reasonOfMissesDueToSpread_item)
+  reasonOfMissesDueToSpread_combo:add_item("Due to bad config", reasonOfMissesDueToSpread_item)
+  reasonOfMissesDueToSpread_combo:add_item("Config issue", reasonOfMissesDueToSpread_item)
+  reasonOfMissesDueToSpread_combo:add_item("Lua issue", reasonOfMissesDueToSpread_item)
+  reasonOfMissesDueToSpread_combo:add_item("Uid issue", reasonOfMissesDueToSpread_item)
+  reasonOfMissesDueToSpread_combo:add_item("Playstyle issue", reasonOfMissesDueToSpread_item)
+ 
+-- on pain function
+function on_paint()
+ 
+    -- float to int
+    local watermark_colour_value = watermark_colour_item:get_float( ) * 1
+    local log_colour_value = log_colour_item:get_float( ) * 1
+    local bg_colour_value = bg_colour_item:get_float( ) * 1
+ 
+    -- event log
+    for i = 1, #logs do
+ 
+        -- nil check
+        if (logs[i] ~= nil) then
+ 
+            -- variable of ratio
+            local ratio = 1.5
+ 
+            -- setting the time of animation
+            if (logs[i].expiration <= 1.5) then
+                ratio = (logs[i].expiration) / 1
+            end
+ 
+            -- smoothly animated alpha
+            if (logs[i].expiration <= 2.5) then
+                alpha = 240
+            elseif (logs[i].expiration <= 2.4) then
+                alpha = 180
+            elseif (logs[i].expiration <= 2.3) then
+                alpha = 140
+            elseif (logs[i].expiration <= 2.2) then
+                alpha = 120
+            elseif (logs[i].expiration <= 2.1) then
+                alpha = 100
+            elseif (logs[i].expiration <= 2.0) then
+                alpha = 60
+            elseif (logs[i].expiration <= 1.9) then
+                alpha = 0
+            elseif (logs[i].expiration <= 1.8) then
+                alpha = 80
+            elseif (logs[i].expiration <= 1.7) then
+                alpha = 60
+            elseif (logs[i].expiration <= 1.6) then
+                alpha = 40
+            elseif (logs[i].expiration <= 1.5) then
+                alpha = 20
+            elseif (logs[i].expiration <= 1.4) then
+                alpha = 0
+            else
+                alpha = 255
+            end
+ 
+            -- colour changer for watermark (final version)
+            if watermark_colour_value == 0 then
+                watermark_colour = csgo.color(255, 255, 255, alpha) --< white
+                elseif watermark_colour_value == 1 then
+                watermark_colour = csgo.color(0, 0, 0, alpha) --< black
+                elseif watermark_colour_value == 2 then
+                watermark_colour = csgo.color(255, 0, 0, alpha) --< deep-red
+                elseif watermark_colour_value == 3 then
+                watermark_colour = csgo.color(244,67,54, alpha) --< red
+                elseif watermark_colour_value == 4 then
+                watermark_colour = csgo.color(255,87,34, alpha) --< light-red
+                elseif watermark_colour_value == 5 then
+                watermark_colour = csgo.color(255,152,0, alpha) --< deep-orange
+                elseif watermark_colour_value == 6 then
+                watermark_colour = csgo.color(255,193,7, alpha) --< orange
+                elseif watermark_colour_value == 7 then
+                watermark_colour = csgo.color(255,235,59, alpha) --< yellow
+                elseif watermark_colour_value == 8 then
+                watermark_colour = csgo.color(205,220,57, alpha) --< lime
+                elseif watermark_colour_value == 9 then
+                watermark_colour = csgo.color(139,195,74, alpha) --< light-green
+                elseif watermark_colour_value == 10 then
+                watermark_colour = csgo.color(76,175,80, alpha) --< green
+                elseif watermark_colour_value == 11 then
+                watermark_colour = csgo.color(0,150,136, alpha) --< teal
+                elseif watermark_colour_value == 12 then
+                watermark_colour = csgo.color(0,188,212, alpha) --< cyan
+                elseif watermark_colour_value == 13 then
+                watermark_colour = csgo.color(3,169,244, alpha) --< ligh-blue
+                elseif watermark_colour_value == 14 then
+                watermark_colour = csgo.color(33,150,243, alpha) --< blue
+                elseif watermark_colour_value == 15 then
+                watermark_colour = csgo.color(63,81,181, alpha) --< indigo
+                elseif watermark_colour_value == 16 then
+                watermark_colour = csgo.color(103,58,183, alpha) --< deep-purple
+                elseif watermark_colour_value == 17 then
+                watermark_colour = csgo.color(156,39,176, alpha) --< purple
+                elseif watermark_colour_value == 18 then
+                watermark_colour = csgo.color(126,87,194, alpha) --< -light-purple
+                elseif watermark_colour_value == 19 then
+                watermark_colour = csgo.color(233,30,99, alpha) --< deep-pink
+                elseif watermark_colour_value == 20 then
+                watermark_colour = csgo.color(236,64,122, alpha) --< light-pink
+                else
+                watermark_colour = csgo.color(255, 255, 255, alpha) --< default
+            end
+ 
+            -- colour changer for logs (final version)
+            if log_colour_value == 0 then
+                log_colour = csgo.color(255, 255, 255, alpha) --< white
+                elseif log_colour_value == 1 then
+                log_colour = csgo.color(0, 0, 0, alpha) --< black
+                elseif log_colour_value == 2 then
+                log_colour = csgo.color(255, 0, 0, alpha) --< deep-red
+                elseif log_colour_value == 3 then
+                log_colour = csgo.color(244,67,54, alpha) --< red
+                elseif log_colour_value == 4 then
+                log_colour = csgo.color(255,87,34, alpha) --< light-red
+                elseif log_colour_value == 5 then
+                log_colour = csgo.color(255,152,0, alpha) --< deep-orange
+                elseif log_colour_value == 6 then
+                log_colour = csgo.color(255,193,7, alpha) --< orange
+                elseif log_colour_value == 7 then
+                log_colour = csgo.color(255,235,59, alpha) --< yellow
+                elseif log_colour_value == 8 then
+                log_colour = csgo.color(205,220,57, alpha) --< lime
+                elseif log_colour_value == 9 then
+                log_colour = csgo.color(139,195,74, alpha) --< light-green
+                elseif log_colour_value == 10 then
+                log_colour = csgo.color(76,175,80, alpha) --< green
+                elseif log_colour_value == 11 then
+                log_colour = csgo.color(0,150,136, alpha) --< teal
+                elseif log_colour_value == 12 then
+                log_colour = csgo.color(0,188,212, alpha) --< cyan
+                elseif log_colour_value == 13 then
+                log_colour = csgo.color(3,169,244, alpha) --< ligh-blue
+                elseif log_colour_value == 14 then
+                log_colour = csgo.color(33,150,243, alpha) --< blue
+                elseif log_colour_value == 15 then
+                log_colour = csgo.color(63,81,181, alpha) --< indigo
+                elseif log_colour_value == 16 then
+                log_colour = csgo.color(103,58,183, alpha) --< deep-purple
+                elseif log_colour_value == 17 then
+                log_colour = csgo.color(156,39,176, alpha) --< purple
+                elseif log_colour_value == 18 then
+                log_colour = csgo.color(126,87,194, alpha) --< -light-purple
+                elseif log_colour_value == 19 then
+                log_colour = csgo.color(233,30,99, alpha) --< deep-pink
+                elseif log_colour_value == 20 then
+                log_colour = csgo.color(236,64,122, alpha) --< light-pink
+                else
+                log_colour = csgo.color(255, 255, 255, alpha) --< default
+            end
+ 
+            -- colour changer for background (final version)
+            if bg_colour_value == 0 then
+                bg_colour = csgo.color(255, 255, 255, alpha) --< white
+                elseif bg_colour_value == 1 then
+                bg_colour = csgo.color(0, 0, 0, alpha) --< black
+                elseif bg_colour_value == 2 then
+                bg_colour = csgo.color(255, 0, 0, alpha) --< deep-red
+                elseif bg_colour_value == 3 then
+                bg_colour = csgo.color(244,67,54, alpha) --< red
+                elseif bg_colour_value == 4 then
+                bg_colour = csgo.color(255,87,34, alpha) --< light-red
+                elseif bg_colour_value == 5 then
+                bg_colour = csgo.color(255,152,0, alpha) --< deep-orange
+                elseif bg_colour_value == 6 then
+                bg_colour = csgo.color(255,193,7, alpha) --< orange
+                elseif bg_colour_value == 7 then
+                bg_colour = csgo.color(255,235,59, alpha) --< yellow
+                elseif bg_colour_value == 8 then
+                bg_colour = csgo.color(205,220,57, alpha) --< lime
+                elseif bg_colour_value == 9 then
+                bg_colour = csgo.color(139,195,74, alpha) --< light-green
+                elseif bg_colour_value == 10 then
+                bg_colour = csgo.color(76,175,80, alpha) --< green
+                elseif bg_colour_value == 11 then
+                bg_colour = csgo.color(0,150,136, alpha) --< teal
+                elseif bg_colour_value == 12 then
+                bg_colour = csgo.color(0,188,212, alpha) --< cyan
+                elseif bg_colour_value == 13 then
+                bg_colour = csgo.color(3,169,244, alpha) --< ligh-blue
+                elseif bg_colour_value == 14 then
+                bg_colour = csgo.color(33,150,243, alpha) --< blue
+                elseif bg_colour_value == 15 then
+                bg_colour = csgo.color(63,81,181, alpha) --< indigo
+                elseif bg_colour_value == 16 then
+                bg_colour = csgo.color(103,58,183, alpha) --< deep-purple
+                elseif bg_colour_value == 17 then
+                bg_colour = csgo.color(156,39,176, alpha) --< purple
+                elseif bg_colour_value == 18 then
+                bg_colour = csgo.color(126,87,194, alpha) --< -light-purple
+                elseif bg_colour_value == 19 then
+                bg_colour = csgo.color(233,30,99, alpha) --< deep-pink
+                elseif bg_colour_value == 20 then
+                bg_colour = csgo.color(236,64,122, alpha) --< light-pink
+                else
+                bg_colour = csgo.color(255, 255, 255, alpha) --< default
+            end
+ 
+            -- needed variables for chroma mode
+            local r = math.floor( math.sin( global_vars.realtime * 2) * 127 + 128 )
+            local g =  math.floor( math.sin( global_vars.realtime * 2 + 2 ) * 127 + 128 )
+            local b = math.floor( math.sin( global_vars.realtime * 2 + 4 ) * 127 + 128 );
+ 
+            -- chroma mode
+            if addChromaMode_item:get_bool() then
+                log_colour = csgo.color(r,g,b, alpha)
+                watermark_colour = csgo.color(r,g,b, alpha)
+            end
+ 
+ 
+            -- light
+            if log_design_item:get_int() == 0 then
+ 
+                if font_item:get_int( ) == 0 then
+                    render:text(lucida10px, 7, 7 * (i - 1) * 2 - ((1 - ratio) * 15),  logs[i].text, log_colour)
+                elseif font_item:get_int( ) == 1 then
+                    render:text(sPixel711px, 7, 7 * (i - 1) * 2 - ((1 - ratio) * 15),  logs[i].text, log_colour)
+                elseif font_item:get_int( ) == 2 then
+                    render:text(verdana12px, 7, 7 * (i - 1) * 2 - ((1 - ratio) * 15),  logs[i].text, log_colour)
+                elseif font_item:get_int( ) == 3 then
+                    render:text(verdanaBold12px, 7, 7 * (i - 1) * 2 - ((1 - ratio) * 15),  logs[i].text, log_colour)
+                end
+ 
+            -- light with watermark    
+            elseif log_design_item:get_int() == 1 then
+ 
+                if font_item:get_int( ) == 0 then
+                    render:text(lucida10px, 7, 7 * (i - 1) * 2 - ((1 - ratio) * 15), "[Fatality]  ", watermark_colour)
+                    render:text(lucida10px, 75, 7 * (i - 1) * 2 - ((1 - ratio) * 15), logs[i].text, log_colour)
+                elseif font_item:get_int( ) == 1 then
+                    render:text(sPixel711px, 7, 7 * (i - 1) * 2 - ((1 - ratio) * 15), "[Fatality]  ", watermark_colour)
+                    render:text(sPixel711px, 54, 7 * (i - 1) * 2 - ((1 - ratio) * 15), logs[i].text, log_colour)
+                elseif font_item:get_int( ) == 2 then
+                    render:text(verdana12px, 7, 7 * (i - 1) * 2 - ((1 - ratio) * 15), "[Fatality]  ", watermark_colour)
+                    render:text(verdana12px, 58, 7 * (i - 1) * 2 - ((1 - ratio) * 15), logs[i].text, log_colour)
+                elseif font_item:get_int( ) == 3 then
+                    render:text(verdanaBold12px, 7, 7 * (i - 1) * 2 - ((1 - ratio) * 15), "[Fatality]  ", watermark_colour)
+                    render:text(verdanaBold12px, 63, 7 * (i - 1) * 2 - ((1 - ratio) * 15), logs[i].text, log_colour)
+                end
+ 
+            -- Background        
+            elseif log_design_item:get_int() == 2 then    
+ 
+                render:rect_fade(0 , 10 * (i - 1) * 2 - ((1 - ratio) * 10) - 2, 400, 1, csgo.color(0, 0, 0, 255), csgo.color(0, 0, 0, 0), true)
+                render:rect_fade(0 , 10 * (i - 1) * 2 - ((1 - ratio) * 10) + 19 - 2, 400, 1, csgo.color(0, 0, 0, 255), csgo.color(0, 0, 0, 0), true)
+                render:rect_fade(0 , 10 * (i - 1) * 2 - ((1 - ratio) * 10) - 2, 400, 19, bg_colour, csgo.color(255, 0, 72, 0), true)
+ 
+                if font_item:get_int( ) == 0 then
+                    render:text(lucida10px, 7, 10 * (i - 1) * 2 - ((1 - ratio) * 15),  logs[i].text, log_colour)
+                elseif font_item:get_int( ) == 1 then
+                    render:text(sPixel711px, 7, 10* (i - 1) * 2 - ((1 - ratio) * 15),  logs[i].text, log_colour)
+                elseif font_item:get_int( ) == 2 then
+                    render:text(verdana12px, 7, 10 * (i - 1) * 2 - ((1 - ratio) * 15) - 1,  logs[i].text, log_colour)
+                elseif font_item:get_int( ) == 3 then
+                    render:text(verdanaBold12px, 7, 10 * (i - 1) * 2 - ((1 - ratio) * 15) - 1,  logs[i].text, log_colour)
+                end
+ 
+            -- Background  with watermark
+            elseif log_design_item:get_int() == 3 then    
+ 
+                render:rect_fade(0 , 10 * (i - 1) * 2 - ((1 - ratio) * 10) - 2, 450, 1, csgo.color(0, 0, 0, 255), csgo.color(0, 0, 0, 0), true)
+                render:rect_fade(0 , 10 * (i - 1) * 2 - ((1 - ratio) * 10) + 19 - 2, 450, 1, csgo.color(0, 0, 0, 255), csgo.color(0, 0, 0, 0), true)
+                render:rect_fade(0 , 10 * (i - 1) * 2 - ((1 - ratio) * 10) - 2, 450, 19, bg_colour, csgo.color(255, 0, 72, 0), true)
+ 
+                if font_item:get_int( ) == 0 then
+                    render:text(lucida10px, 7, 10 * (i - 1) * 2 - ((1 - ratio) * 15),  "[Fatality]  ", watermark_colour)
+                    render:text(lucida10px, 75, 10 * (i - 1) * 2 - ((1 - ratio) * 15),  logs[i].text, log_colour)
+                elseif font_item:get_int( ) == 1 then
+                    render:text(sPixel711px, 7, 10 * (i - 1) * 2 - ((1 - ratio) * 15),  "[Fatality]  ", watermark_colour)
+                    render:text(sPixel711px, 54, 10* (i - 1) * 2 - ((1 - ratio) * 15),  logs[i].text, log_colour)
+                elseif font_item:get_int( ) == 2 then
+                    render:text(verdana12px, 7, 10 * (i - 1) * 2 - ((1 - ratio) * 15) - 1,  "[Fatality]  ", watermark_colour)
+                    render:text(verdana12px, 58, 10 * (i - 1) * 2 - ((1 - ratio) * 15) - 1,  logs[i].text, log_colour)
+                elseif font_item:get_int( ) == 3 then
+                    render:text(verdanaBold12px, 7, 10 * (i - 1) * 2 - ((1 - ratio) * 15) - 1,  "[Fatality]  ", watermark_colour)
+                    render:text(verdanaBold12px, 63, 10 * (i - 1) * 2 - ((1 - ratio) * 15) - 1,  logs[i].text, log_colour)
+                end
+ 
+            end
+   
+            -- removes log if time is expired
+            logs[i].expiration = logs[i].expiration - 0.01
+            if (logs[i].expiration <= 1.2) then
+                table.remove(logs, i)
+            end
+ 
+        end
+ 
+    end
+ 
+end
+ 
+-- on shot function
+function on_registered_shot( shot )
+ 
+ 
+    -- creating a variable of the enemy
+    local enemy = entity_list:get_player( shot.victim )
+ 
+    -- nil check
+    if enemy == nil then
+        return
+    end
+ 
+    -- getting shot info
+    local shot_info_t = shot.shot_info
+ 
+    -- returns the function if something goes wrong
+    if not shot_info_t.has_info then
+        return
+    end
+ 
+    -- creating a variable of default hitgroup
+    local hitgroup=0
+ 
+    -- if we did a hit
+    if shot.hurt then
+ 
+        local getHealth = enemy:get_var_int("CBasePlayer->m_iHealth")
+ 
+        --
+        hitgroup=shot.hit_hitgroup
+ 
+        -- hitgroup renaming from int to string
+        if hitgroup == 1 then
+            hitgroup = "head"
+            elseif hitgroup == 2 then
+            hitgroup = "chest"
+            elseif hitgroup == 3 then
+            hitgroup = "stomach"
+            elseif hitgroup == 4 then
+            hitgroup = "hand"
+            elseif hitgroup == 5 then
+            hitgroup = "arm"
+            elseif hitgroup == 6 then
+            hitgroup = "leg"
+            elseif hitgroup == 7 then
+            hitgroup = "leg"
+            elseif hitgroup == 8 then
+            hitgroup = "neck"
+            else
+            hitgroup = "unknown"
+        end
+ 
+         -- if the cheat did a hit, then render this line
+        add_light_log("Hit " .. enemy:get_name( ) .. " in " .. "the " .. hitgroup .. " for " .. shot.hit_damage .. " damage" .. " (" .. getHealth .. " health remaining)")
+ 
+    -- if the cheat did a miss because of the resolver problem  
+    elseif not shot.hurt and shot.hit then
+ 
+        -- log that shows if we did a miss
+        if reasonOfMissesDueToResolver_item:get_int() == 0 then
+            add_light_log("Missed shot due to resolver")
+        elseif reasonOfMissesDueToResolver_item:get_int() == 1 then
+            add_light_log("Missed shot due to bad config")
+        elseif reasonOfMissesDueToResolver_item:get_int() == 2 then
+            add_light_log("Config issue")
+        elseif reasonOfMissesDueToResolver_item:get_int() == 3 then
+            add_light_log("Lua issue")
+        elseif reasonOfMissesDueToResolver_item:get_int() == 4 then
+            add_light_log("Uid issue")
+        elseif reasonOfMissesDueToResolver_item:get_int() == 5 then
+            add_light_log("Playstyle issue")
+        end
+       
+    -- miss due to accuracy
+    else
+        -- log that shows if we did a miss
+        if reasonOfMissesDueToSpread_item:get_int() == 0 then
+            add_light_log("Missed shot due to spread")
+        elseif reasonOfMissesDueToSpread_item:get_int() == 1 then
+            add_light_log("Missed shot due to bad config")
+        elseif reasonOfMissesDueToSpread_item:get_int() == 2 then
+            add_light_log("Config issue")
+        elseif reasonOfMissesDueToSpread_item:get_int() == 3 then
+            add_light_log("Lua issue")
+        elseif reasonOfMissesDueToSpread_item:get_int() == 4 then
+            add_light_log("Uid issue")
+        elseif reasonOfMissesDueToSpread_item:get_int() == 5 then
+            add_light_log("Playstyle issue")
+        end
+ 
+    end
+ 
+end
+ 
+-- callbacks
+local callbacks = fatality.callbacks
+callbacks:add( "registered_shot", on_registered_shot )
+callbacks:add( "paint", on_paint )
+ 
+-- end of the code
